@@ -23,7 +23,11 @@ class SimUSBActor(Module):
         self._send_buffer = b''
         self._idle_count = 0
 
-        self.comb += self.sink.ack.eq(True)
+        self.comb += [
+            self.sink.ack.eq(True),
+            self.busy.eq(0),
+        ]
+
 
     def gen_simulation(self, selfp):
 

@@ -1,5 +1,6 @@
 import os
 import socket
+import select
 import time
 import usb1
 
@@ -33,18 +34,25 @@ class UsbComm:
         self.read_buffer = b""
 
     def _read_callback(self, transfer):
-        if transfer.getStatus():
+        status = transfer.getStatus()
+        if status == 3: # cancelled
+            return
+        elif status:
             raise RuntimeError("usb communication error")
         size = transfer.getActualLength()
         self.read_buffer += transfer.getBuffer()[:size]
         transfer.submit()
 
-    def read(self, size):
+    def read(self, size, timeout=None):
         self.flush()
-        while len(self.read_buffer) < size:
-            self.context.handleEvents()
+        if timeout is None:
+            while len(self.read_buffer) < size:
+                self.context.handleEvents()
+
+        else:
+            self.context.handleEvents(tv=timeout)
         data = self.read_buffer[:size]
-        self.read_buffer = self.read_buffer[size:]
+        self.read_buffer = self.read_buffer[len(data):]
         return data
 
     def _write_callback(self, transfer):
@@ -75,10 +83,22 @@ class SimComm:
     def write(self, s):
         self.socket.sendall(s)
 
-    def read(self, size):
+    def read(self, size, timeout=None):
         result = b''
-        while len(result) < size:
-            result += self.socket.recv(size - len(result))
+        if timeout is None:
+            self.socket.setblocking(1)
+            while len(result) < size:
+                result += self.socket.recv(size - len(result))
+        else:
+            end_time = time.time() + timeout
+            self.socket.setblocking(0)
+            while len(result) < size:
+                delta = end_time - time.time()
+                if delta <= 0:
+                    break
+                ready = select.select([self.socket], [], [], delta)
+                if ready[0]:
+                    result += self.socket.recv(size - len(result))
         return result
 
     def flush(self):
